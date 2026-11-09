@@ -25,7 +25,7 @@ import com.caseymisc.fitdash.GarminState
 import com.caseymisc.fitdash.data.garmin.GarminDashboard
 import com.caseymisc.fitdash.data.garmin.GarminSleep
 import com.caseymisc.fitdash.ui.components.BarChart
-import com.caseymisc.fitdash.ui.components.LineChart
+import com.caseymisc.fitdash.ui.components.BodyBatteryChart
 import com.caseymisc.fitdash.ui.components.MessageCard
 import com.caseymisc.fitdash.ui.components.SectionCard
 import com.caseymisc.fitdash.ui.components.StackedBar
@@ -34,6 +34,7 @@ import com.caseymisc.fitdash.ui.components.TileRow
 import com.caseymisc.fitdash.ui.components.formatMinutes
 import com.caseymisc.fitdash.ui.components.formatTime
 import com.caseymisc.fitdash.ui.components.weekdayLabel
+import java.time.ZoneId
 
 internal val BatteryColor = Color(0xFF2FA4D8)
 internal val StressColor = Color(0xFFE8833A)
@@ -118,7 +119,7 @@ private fun GarminReady(data: GarminDashboard) {
                 tint = MaterialTheme.colorScheme.secondary,
             )
         }
-        if (data.bodyBatteryToday.size >= 2) BodyBatteryCard(data)
+        if (data.bodyBatteryToday.isNotEmpty()) BodyBatteryCard(data)
         sleep?.let { GarminSleepCard(it) }
         TrendsCard(data)
     }
@@ -128,21 +129,18 @@ private fun GarminReady(data: GarminDashboard) {
 private fun BodyBatteryCard(data: GarminDashboard) {
     val t = data.today
     val trailing = listOfNotNull(
-        t.bodyBatteryCharged?.let { "+$it" },
-        t.bodyBatteryDrained?.let { "−$it" },
-    ).joinToString(" / ").ifEmpty { null }
+        t.bodyBatteryCharged?.let { "+$it charged" },
+        t.bodyBatteryDrained?.let { "−$it drained" },
+    ).joinToString(" · ").ifEmpty { null }
+    val sleep = data.days.last().sleep
     SectionCard("Body Battery today", trailing = trailing) {
-        val points = data.bodyBatteryToday
-        LineChart(
-            points = points.map { it.time.epochSecond.toDouble() to it.level.toDouble() },
-            lineColor = BatteryColor,
+        BodyBatteryChart(
+            battery = data.bodyBatteryToday,
+            stress = data.stressToday,
+            dayStart = t.date.atStartOfDay(ZoneId.systemDefault()).toInstant(),
+            sleepStart = sleep?.start,
+            sleepEnd = sleep?.end,
         )
-        Row {
-            Text(formatTime(points.first().time), style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = androidx.compose.ui.Modifier.weight(1f))
-            Text(formatTime(points.last().time), style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
     }
 }
 

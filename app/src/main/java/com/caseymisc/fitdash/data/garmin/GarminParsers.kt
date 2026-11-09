@@ -149,28 +149,88 @@ fun parseHrv(json: JsonElement?): GarminHrv? {
 fun parseTrainingStatus(json: JsonElement?): String? =
     prettyEnum(json.findKey("trainingStatusFeedbackPhrase").prim()?.contentOrNull)
 
-/** `/wellness-service/wellness/bodyBattery/reports/daily?startDate=&endDate=` */
-fun parseBodyBatteryCurve(json: JsonElement?): List<BodyBatteryPoint> {
-    val day = when (json) {
-        is JsonArray -> json.lastOrNull() as? JsonObject
-        is JsonObject -> json
-        else -> null
-    } ?: return emptyList()
-    val values = day["bodyBatteryValuesArray"] as? JsonArray ?: return emptyList()
+/**
+ * Finds which column of a Garmin values array holds [name], using the descriptor list that
+ * sits next to it (e.g. `bodyBatteryValueDescriptorsDTOList` or `stressValueDescriptorsDTOList`).
+ * Descriptor objects look like `{"...Index": 2, "...Key": "bodyBatteryLevel"}` or
+ * `{"index": 1, "key": "stressLevel"}`.
+ */
+private fun JsonObject.columnIndex(descriptorPrefix: String, name: String): Int? {
+    val descriptors = entries
+        .firstOrNull { it.key.startsWith(descriptorPrefix) && it.value is JsonArray }
+        ?.value as? JsonArray ?: return null
+    return descriptors.mapNotNull { it as? JsonObject }
+        .firstOrNull { d -> d.values.any { it.prim()?.contentOrNull == name } }
+        ?.let { d ->
+            d.entries.firstOrNull { it.key == "index" || it.key.endsWith("Index") }
+                ?.value.prim()?.doubleOrNull?.toInt()
+        }
+}
 
-    // Descriptors say which column holds the level; default to Garmin's usual [timestamp, level].
-    val descriptors = day.entries
-        .firstOrNull { it.key.startsWith("bodyBatteryValueDescriptor") && it.value is JsonArray }
-        ?.value as? JsonArray
-    val levelIndex = descriptors?.mapNotNull { it as? JsonObject }
-        ?.firstOrNull { d -> d.values.any { it.prim()?.contentOrNull == "bodyBatteryLevel" } }
-        ?.let { d -> d.entries.firstOrNull { it.key.endsWith("Index") }?.value.prim()?.doubleOrNull?.toInt() }
-        ?: 1
+/** The day object from either a bare object or a one-element list. */
+private fun JsonElement?.dayObject(): JsonObject? = when (this) {
+    is JsonArray -> lastOrNull() as? JsonObject
+    is JsonObject -> this
+    else -> null
+}
 
+private fun JsonObject.series(
+    arrayKey: String,
+    descriptorPrefix: String,
+    levelName: String,
+    defaultIndex: Int,
+): List<Pair<Instant, Double>> {
+    val values = this[arrayKey] as? JsonArray ?: return emptyList()
+    val levelIndex = columnIndex(descriptorPrefix, levelName) ?: defaultIndex
     return values.mapNotNull { row ->
         val cols = row as? JsonArray ?: return@mapNotNull null
         val ts = cols.getOrNull(0).prim()?.longOrNull ?: return@mapNotNull null
         val level = cols.getOrNull(levelIndex).prim()?.doubleOrNull ?: return@mapNotNull null
-        BodyBatteryPoint(Instant.ofEpochMilli(ts), level.roundToInt())
-    }.sortedBy { it.time }
+        Instant.ofEpochMilli(ts) to level
+    }.sortedBy { it.first }
+}
+
+/**
+ * Body Battery samples from either:
+ * - `/wellness-service/wellness/dailyStress/{date}`: every few minutes, rows like
+ *   `[ts, "MEASURED", level, version]`, or
+ * - `/wellness-service/wellness/bodyBattery/reports/daily`: coarser `[ts, level]` rows.
+ */
+fun parseBodyBatteryCurve(json: JsonElement?): List<BodyBatteryPoint> {
+    val day = json.dayObject() ?: return emptyList()
+    // Without descriptors, the level is the last numeric column of a 2-column row, or column 2.
+    val firstRow = (day["bodyBatteryValuesArray"] as? JsonArray)?.firstOrNull() as? JsonArray
+    val defaultIndex = if (firstRow != null && firstRow.size > 2) 2 else 1
+    return day.series("bodyBatteryValuesArray", "bodyBatteryValueDescriptor", "bodyBatteryLevel", defaultIndex)
+        .map { (time, level) -> BodyBatteryPoint(time, level.roundToInt()) }
+}
+
+data class StressPoint(val time: Instant, val level: Int)
+
+/**
+ * Stress samples from `/wellness-service/wellness/dailyStress/{date}`. Negative values mean
+ * "no reading" (off wrist, or too active to measure) and are dropped.
+ */
+fun parseStressCurve(json: JsonElement?): List<StressPoint> {
+    val day = json.dayObject() ?: return emptyList()
+    return day.series("stressValuesArray", "stressValueDescriptor", "stressLevel", 1)
+        .filter { it.second >= 0 }
+        .map { (time, level) -> StressPoint(time, level.roundToInt()) }
+}
+
+/**
+ * Splits a time-ordered series wherever consecutive samples are more than [maxGap] apart,
+ * so charts leave a gap (watch off, no data) instead of drawing a line across it.
+ */
+fun <T> splitAtGaps(points: List<T>, maxGap: java.time.Duration, time: (T) -> Instant): List<List<T>> {
+    val segments = mutableListOf<MutableList<T>>()
+    points.forEach { p ->
+        val current = segments.lastOrNull()
+        if (current == null || java.time.Duration.between(time(current.last()), time(p)) > maxGap) {
+            segments += mutableListOf(p)
+        } else {
+            current += p
+        }
+    }
+    return segments
 }

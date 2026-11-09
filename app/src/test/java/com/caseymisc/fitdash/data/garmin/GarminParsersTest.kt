@@ -116,4 +116,44 @@ class GarminParsersTest {
         assertEquals("Recovered and ready", prettyEnum("RECOVERED_AND_READY"))
         assertNull(prettyEnum(""))
     }
+
+    private val dailyStressFeed = """
+        {"calendarDate":"2026-11-09","maxStressLevel":88,"avgStressLevel":31,
+         "stressValueDescriptorsDTOList":[{"key":"timestamp","index":0},{"key":"stressLevel","index":1}],
+         "stressValuesArray":[[1762646400000,22],[1762646580000,-1],[1762646760000,-2],[1762646940000,47]],
+         "bodyBatteryValueDescriptorsDTOList":[
+           {"bodyBatteryValueDescriptorIndex":0,"bodyBatteryValueDescriptorKey":"timestamp"},
+           {"bodyBatteryValueDescriptorIndex":1,"bodyBatteryValueDescriptorKey":"bodyBatteryStatus"},
+           {"bodyBatteryValueDescriptorIndex":2,"bodyBatteryValueDescriptorKey":"bodyBatteryLevel"},
+           {"bodyBatteryValueDescriptorIndex":3,"bodyBatteryValueDescriptorKey":"bodyBatteryVersion"}],
+         "bodyBatteryValuesArray":[[1762646400000,"MEASURED",71,2.0],[1762646580000,"MEASURED",70,2.0],
+                                   [1762646760000,"MEASURED",70,2.0]]}
+    """.trimIndent()
+
+    @Test
+    fun detailedBodyBatteryFromDailyStressFeed() {
+        val curve = parseBodyBatteryCurve(j(dailyStressFeed))
+        assertEquals(listOf(71, 70, 70), curve.map { it.level })
+        assertEquals(Instant.ofEpochMilli(1762646580000), curve[1].time)
+    }
+
+    @Test
+    fun stressDropsUnmeasuredSamples() {
+        val stress = parseStressCurve(j(dailyStressFeed))
+        assertEquals(listOf(22, 47), stress.map { it.level })
+    }
+
+    @Test
+    fun fourColumnRowsWithoutDescriptorsUseLevelColumn() {
+        val curve = parseBodyBatteryCurve(j("""{"bodyBatteryValuesArray":[[1000,"MEASURED",55,2.0]]}"""))
+        assertEquals(listOf(55), curve.map { it.level })
+    }
+
+    @Test
+    fun splitsSeriesAtGaps() {
+        val base = Instant.parse("2026-11-09T00:00:00Z")
+        val times = listOf(0L, 3, 6, 40, 43, 120).map { base.plusSeconds(it * 60) }
+        val segments = splitAtGaps(times, java.time.Duration.ofMinutes(15)) { it }
+        assertEquals(listOf(3, 2, 1), segments.map { it.size })
+    }
 }

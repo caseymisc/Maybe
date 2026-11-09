@@ -17,6 +17,7 @@ data class GarminDashboard(
     val hrv: GarminHrv?,
     val trainingStatus: String?,
     val bodyBatteryToday: List<BodyBatteryPoint>,
+    val stressToday: List<StressPoint> = emptyList(),
 ) {
     val today: GarminDay get() = days.last()
 
@@ -67,10 +68,15 @@ class GarminRepository(private val client: GarminClient) {
         val readiness = async { parseTrainingReadiness(fetch("/metrics-service/metrics/trainingreadiness/$t")) }
         val hrv = async { parseHrv(fetch("/hrv-service/hrv/$t")) }
         val status = async { parseTrainingStatus(fetch("/metrics-service/metrics/trainingstatus/daily/$t")) }
+        // The daily stress feed carries Body Battery every few minutes; the Body Battery report
+        // is coarser, so it's only used when the stress feed has no Body Battery samples.
+        val stressFeed = async { fetch("/wellness-service/wellness/dailyStress/$t") }
         val curve = async {
-            parseBodyBatteryCurve(
-                fetch("/wellness-service/wellness/bodyBattery/reports/daily", mapOf("startDate" to t, "endDate" to t))
-            )
+            parseBodyBatteryCurve(stressFeed.await()).ifEmpty {
+                parseBodyBatteryCurve(
+                    fetch("/wellness-service/wellness/bodyBattery/reports/daily", mapOf("startDate" to t, "endDate" to t))
+                )
+            }
         }
 
         GarminDashboard(
@@ -80,6 +86,7 @@ class GarminRepository(private val client: GarminClient) {
             hrv = hrv.await(),
             trainingStatus = status.await(),
             bodyBatteryToday = curve.await(),
+            stressToday = parseStressCurve(stressFeed.await()),
         )
     }
 }
