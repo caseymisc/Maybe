@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Three ascending bars: a tiny dashboard. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FF4FD1C5" android:pathData="M36,62h8v14h-8z" />
+    <path android:fillColor="#FF63B3ED" android:pathData="M50,50h8v26h-8z" />
+    <path android:fillColor="#FFF6AD55" android:pathData="M64,36h8v40h-8z" />
+</vector>
