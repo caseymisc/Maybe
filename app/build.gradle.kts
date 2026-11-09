@@ -13,15 +13,33 @@ android {
         applicationId = "com.caseymisc.fitdash"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
+        // Increases with every CI run so each new APK installs as an update.
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "0.1.0"
     }
 
+    // One fixed key for every build. CI machines otherwise generate a new debug key each
+    // run, and Android refuses to update an app signed with a different key ("App not
+    // installed"). CI writes the key from the FITDASH_KEYSTORE_B64 secret to
+    // signing/fitdash-sideload.jks; without it, builds fall back to the default debug key.
+    val sideloadKeystore = rootProject.file("signing/fitdash-sideload.jks")
+    signingConfigs {
+        create("sideload") {
+            storeFile = sideloadKeystore
+            storePassword = System.getenv("FITDASH_KEYSTORE_PASSWORD") ?: "fitdash-sideload"
+            keyAlias = "fitdash"
+            keyPassword = System.getenv("FITDASH_KEYSTORE_PASSWORD") ?: "fitdash-sideload"
+        }
+    }
+    val apkSigning = signingConfigs.getByName(if (sideloadKeystore.exists()) "sideload" else "debug")
+
     buildTypes {
+        debug {
+            signingConfig = apkSigning
+        }
         release {
             isMinifyEnabled = false
-            // Personal sideloaded app: sign release builds with the debug key.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = apkSigning
         }
     }
 
