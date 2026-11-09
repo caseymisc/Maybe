@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.caseymisc.fitdash.DashboardViewModel
+import com.caseymisc.fitdash.GarminState
 import com.caseymisc.fitdash.HealthState
 import com.caseymisc.fitdash.data.health.HealthConnectAvailability
 import com.caseymisc.fitdash.data.health.HealthConnectRepository
@@ -63,6 +64,8 @@ private const val SLEEP_GOAL_MINUTES = 8 * 60.0
 @Composable
 fun TodayScreen(vm: DashboardViewModel) {
     val health by vm.health.collectAsStateWithLifecycle()
+    val garmin by vm.garmin.collectAsStateWithLifecycle()
+    val garminSignIn = rememberGarminSignIn(vm)
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -77,6 +80,14 @@ fun TodayScreen(vm: DashboardViewModel) {
         ) {
             item {
                 Text("Today", style = MaterialTheme.typography.headlineMedium)
+            }
+            item { GarminOverview(garmin, onSignIn = garminSignIn, onRetry = vm::refreshGarmin) }
+            item {
+                Text(
+                    "Activity · Health Connect",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
             }
             when (val state = health) {
                 HealthState.Loading -> item { CenteredSpinner() }
@@ -125,8 +136,9 @@ fun TodayScreen(vm: DashboardViewModel) {
                             onAction = { permissionLauncher.launch(vm.healthPermissions) },
                         )
                     }
-                    item { TodayTiles(snapshot) }
-                    item { SleepCard(snapshot) }
+                    val garminSleep = (garmin as? GarminState.Ready)?.data?.lastSleep != null
+                    item { TodayTiles(snapshot, showSleep = !garminSleep) }
+                    if (!garminSleep) item { SleepCard(snapshot) }
                     item { StepsCard(snapshot) }
                     if (snapshot.dailyRestingHr.size >= 2) item { RestingHrCard(snapshot) }
                 }
@@ -136,7 +148,7 @@ fun TodayScreen(vm: DashboardViewModel) {
 }
 
 @Composable
-private fun TodayTiles(snapshot: HealthSnapshot) {
+private fun TodayTiles(snapshot: HealthSnapshot, showSleep: Boolean) {
     val t = snapshot.today
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TileRow { m ->
@@ -165,18 +177,20 @@ private fun TodayTiles(snapshot: HealthSnapshot) {
                 "Distance", t.distanceMeters?.let(::formatDistance) ?: "–", Icons.Filled.Straighten, m,
                 tint = MaterialTheme.colorScheme.secondary,
             )
-            StatTile(
-                "Last sleep", snapshot.lastSleep?.let { formatMinutes(it.asleepMinutes) } ?: "–",
-                Icons.Filled.Bedtime, m, tint = Color(0xFF7C6FD8),
-            )
+            if (showSleep) {
+                StatTile(
+                    "Last sleep", snapshot.lastSleep?.let { formatMinutes(it.asleepMinutes) } ?: "–",
+                    Icons.Filled.Bedtime, m, tint = Color(0xFF7C6FD8),
+                )
+            }
         }
     }
 }
 
-private val DeepColor = Color(0xFF3F3BA8)
-private val LightColor = Color(0xFF7C9CF0)
-private val RemColor = Color(0xFFB57EDC)
-private val AwakeColor = Color(0xFFF2A65A)
+internal val DeepColor = Color(0xFF3F3BA8)
+internal val LightColor = Color(0xFF7C9CF0)
+internal val RemColor = Color(0xFFB57EDC)
+internal val AwakeColor = Color(0xFFF2A65A)
 
 @Composable
 private fun SleepCard(snapshot: HealthSnapshot) {
@@ -223,7 +237,7 @@ private fun LastSleep(sleep: SleepSummary) {
 }
 
 @Composable
-private fun Legend(label: String, minutes: Long, color: Color) {
+internal fun Legend(label: String, minutes: Long, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Surface(color = color, shape = CircleShape, modifier = Modifier.size(8.dp)) {}
         Spacer(Modifier.width(4.dp))

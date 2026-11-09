@@ -3,6 +3,8 @@ package com.caseymisc.fitdash
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.caseymisc.fitdash.data.garmin.GarminAuthException
+import com.caseymisc.fitdash.data.garmin.GarminDashboard
 import com.caseymisc.fitdash.data.health.HealthConnectAvailability
 import com.caseymisc.fitdash.data.health.HealthSnapshot
 import com.caseymisc.fitdash.data.hevy.HevyWorkout
@@ -31,6 +33,13 @@ sealed interface HealthState {
     data class Error(val message: String) : HealthState
 }
 
+sealed interface GarminState {
+    data object Loading : GarminState
+    data class SignedOut(val reason: String? = null) : GarminState
+    data class Ready(val data: GarminDashboard) : GarminState
+    data class Error(val message: String) : GarminState
+}
+
 data class HevyDashboard(
     val workouts: List<HevyWorkout>,
     val weeks: List<WeekBucket>,
@@ -56,6 +65,9 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private val _hevy = MutableStateFlow<HevyState>(HevyState.Loading)
     val hevy: StateFlow<HevyState> = _hevy.asStateFlow()
 
+    private val _garmin = MutableStateFlow<GarminState>(GarminState.Loading)
+    val garmin: StateFlow<GarminState> = _garmin.asStateFlow()
+
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
@@ -70,6 +82,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                 .collect { loadHevy(it) }
         }
         viewModelScope.launch { loadHealth() }
+        viewModelScope.launch { loadGarmin() }
     }
 
     fun refresh() {
@@ -77,14 +90,28 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             _refreshing.value = true
             val health = async { loadHealth() }
             val hevy = async { loadHevy(settings.value.hevyApiKey) }
+            val garmin = async { loadGarmin() }
             health.await()
             hevy.await()
+            garmin.await()
             _refreshing.value = false
         }
     }
 
     fun refreshHealth() {
         viewModelScope.launch { loadHealth() }
+        viewModelScope.launch { loadGarmin() }
+    }
+
+    fun refreshGarmin() {
+        viewModelScope.launch { loadGarmin() }
+    }
+
+    fun signOutGarmin() {
+        viewModelScope.launch {
+            container.garmin.signOut()
+            _garmin.value = GarminState.SignedOut()
+        }
     }
 
     fun saveHevyApiKey(key: String) {
@@ -112,6 +139,22 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             }
         } catch (e: Exception) {
             HealthState.Error(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    private suspend fun loadGarmin() {
+        val repo = container.garmin
+        if (!repo.isSignedIn()) {
+            _garmin.value = GarminState.SignedOut()
+            return
+        }
+        if (_garmin.value !is GarminState.Ready) _garmin.value = GarminState.Loading
+        _garmin.value = try {
+            GarminState.Ready(repo.load())
+        } catch (e: GarminAuthException) {
+            GarminState.SignedOut(e.message)
+        } catch (e: Exception) {
+            GarminState.Error(e.message ?: e.javaClass.simpleName)
         }
     }
 

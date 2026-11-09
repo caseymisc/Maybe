@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.HealthConnectClient
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.caseymisc.fitdash.DashboardViewModel
+import com.caseymisc.fitdash.GarminState
 import com.caseymisc.fitdash.HealthState
 import com.caseymisc.fitdash.HevyState
 import com.caseymisc.fitdash.data.settings.WeightUnit
@@ -49,6 +50,8 @@ fun SettingsScreen(vm: DashboardViewModel) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val hevy by vm.hevy.collectAsStateWithLifecycle()
     val health by vm.health.collectAsStateWithLifecycle()
+    val garmin by vm.garmin.collectAsStateWithLifecycle()
+    val garminSignIn = rememberGarminSignIn(vm)
     val context = LocalContext.current
 
     var keyInput by rememberSaveable { mutableStateOf("") }
@@ -97,12 +100,35 @@ fun SettingsScreen(vm: DashboardViewModel) {
             }
         }
 
-        SectionCard("Garmin via Health Connect", trailing = healthStatus(health)) {
+        SectionCard("Garmin Connect", trailing = garminStatus(garmin)) {
+            val ready = garmin as? GarminState.Ready
             Text(
-                "Garmin Connect has no public API for personal use. FitDash reads the data that the " +
-                    "Garmin Connect app syncs into Health Connect. In Garmin Connect, open " +
-                    "Connected Apps → Health Connect and allow it to write steps, sleep, heart rate " +
-                    "and activities.",
+                if (ready != null) "Signed in as ${ready.data.displayName}."
+                else "Sign in on Garmin's own page to load Body Battery, sleep score, Training " +
+                    "Readiness, HRV and stress. FitDash never sees your password; it keeps only the " +
+                    "access tokens, encrypted on this device.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "Garmin has no public API for personal use, so this uses the same sign-in as the " +
+                    "Garmin Connect app. Garmin may change it without notice.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (garmin is GarminState.Ready || garmin is GarminState.Error) {
+                    OutlinedButton(onClick = vm::signOutGarmin) { Text("Sign out") }
+                    TextButton(onClick = garminSignIn) { Text("Sign in again") }
+                } else {
+                    Button(onClick = garminSignIn) { Text("Sign in to Garmin") }
+                }
+            }
+        }
+
+        SectionCard("Health Connect", trailing = healthStatus(health)) {
+            Text(
+                "Steps, heart rate, distance and activities come from Health Connect. In the Garmin " +
+                    "Connect app, open Connected Apps → Health Connect and allow it to write data.",
                 style = MaterialTheme.typography.bodySmall,
             )
             OutlinedButton(onClick = {
@@ -140,4 +166,11 @@ private fun healthStatus(state: HealthState): String = when (state) {
     is HealthState.Ready ->
         if (state.snapshot.missingPermissions.isEmpty()) "Connected" else "Partially connected"
     is HealthState.Error -> "Error"
+}
+
+private fun garminStatus(state: GarminState): String = when (state) {
+    GarminState.Loading -> "Loading…"
+    is GarminState.SignedOut -> "Not connected"
+    is GarminState.Ready -> "Connected"
+    is GarminState.Error -> "Error"
 }

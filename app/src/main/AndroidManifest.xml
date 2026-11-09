@@ -35,6 +35,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".GarminLoginActivity"
+            android:exported="false" />
+
         <!-- Shown by Health Connect when the user taps the privacy policy link (Android 13 and lower). -->
         <activity
             android:name=".PermissionsRationaleActivity"

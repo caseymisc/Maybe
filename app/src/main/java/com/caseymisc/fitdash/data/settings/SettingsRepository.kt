@@ -14,7 +14,7 @@ data class Settings(
     val weightUnit: WeightUnit = WeightUnit.KG,
 )
 
-private val Context.dataStore by preferencesDataStore(name = "settings")
+internal val Context.dataStore by preferencesDataStore(name = "settings")
 
 class SettingsRepository(private val context: Context) {
     private val hevyKey = stringPreferencesKey("hevy_api_key")
